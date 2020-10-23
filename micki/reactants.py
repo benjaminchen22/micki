@@ -10,6 +10,7 @@ from sympy import Symbol
 from ase import Atoms
 from ase.io import read
 from ase.db import connect
+from ase.db.core import  Database
 from ase.db.row import AtomsRow
 from ase.units import J, mol, _hplanck, m, kg, _k, kB, _c, Pascal, _Nav
 
