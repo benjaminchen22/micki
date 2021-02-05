@@ -140,11 +140,8 @@ class _Thermo(object):
 
     symbol = property(get_symbol, None)
 
-    def update(self, T=None, force=False):
+    def update(self, T=None):
         """Updates the object's thermodynamic properties"""
-        if not self.is_update_needed(T) and not force:
-            return
-
         if T is None:
             T = self.T
 
@@ -155,8 +152,10 @@ class _Thermo(object):
     def is_update_needed(self, T):
         if self.q['tot'] is None:
             return True
+        
         if T is not None and T != self.T:
             return True
+        
         if self.scale != self.scale_old:
             return True
         return False
@@ -238,30 +237,38 @@ class _Thermo(object):
 
     def _calc_qtrans(self, T):
         mtot = sum(self.mass) / kg
-        self.q['trans'] = 0.001*(2*np.pi*mtot*_k*T/_hplanck**2)**(3./2.) \
-            / (mol * self.rho0)
+        #self.q['trans'] = 0.001*(2*np.pi*mtot*_k*T/_hplanck**2)**(3./2.) \
+        #    / (mol * self.rho0)
+        
+        # BC: _k * T / 101325 is volume of 1 particle at standard pressure of 1 atm
+        self.q['trans'] = (2*np.pi*mtot*_k*T/_hplanck**2)**(3/2) * (_k * T / 101325)
         self.E['trans'] = 3. * kB * T / 2. * self.scale['E']['trans']
         self.S['trans'] = kB * (5./2. + np.log(self.q['trans'])) * \
             self.scale['S']['trans']
 
     def _calc_qrot(self, T):
-        com = self.atoms.get_center_of_mass()
+        # BC: added to fix atoms crossing unit cell
+        atoms = self.atoms.copy()
+        vectors = atoms.get_distances(a=0, indices=range(len(atoms)), mic=True, vector=True)
+        for i in range(0, len(atoms)):
+            atoms.positions[i] = atoms.positions[0] + vectors[i]
+
         if self.linear:
             I = 0
-            for atom in self.atoms:
-                I += atom.mass * np.linalg.norm(atom.position - com)**2
+            
+            for atom in atoms:
+                I += atom.mass * np.linalg.norm(atom.position - atoms.get_center_of_mass())**2
+                
             I /= (kg * m**2)
             self.q['rot'] = 8*np.pi**2*I*_k*T/(_hplanck**2*self.symm)
             self.E['rot'] = kB * T * self.scale['E']['rot']
-            self.S['rot'] = kB * (1. + np.log(self.q['rot'])) * \
-                self.scale['S']['rot']
+            self.S['rot'] = kB * (1. + np.log(self.q['rot'])) * self.scale['S']['rot']
         else:
-            I = self.atoms.get_moments_of_inertia() / (kg * m**2)
+            I = atoms.get_moments_of_inertia() / (kg * m**2)
             thetarot = _hplanck**2 / (8 * np.pi**2 * I * _k)
             self.q['rot'] = np.sqrt(np.pi*T**3/np.prod(thetarot))/self.symm
             self.E['rot'] = 3. * kB * T / 2. * self.scale['E']['rot']
-            self.S['rot'] = kB * (3./2. + np.log(self.q['rot'])) * \
-                self.scale['S']['rot']
+            self.S['rot'] = kB * (3./2. + np.log(self.q['rot'])) * self.scale['S']['rot']
 
     def _calc_qvib(self, T, ncut=0):
         thetavib = self.freqs[ncut:] / kB
@@ -339,7 +346,7 @@ class _Fluid(_Thermo):
             label = newlabel
         return self.__class__(self.atoms, label, self.freqs,
                               self.symm, self.spin, self.eref,
-                              self.rhoref, self.dE)
+                              self.rho0, self.dE)
 
     def _calc_q(self, T):
         self._calc_qelec(T)
@@ -349,7 +356,7 @@ class _Fluid(_Thermo):
         self.q['tot'] = self.q['trans'] * self.q['rot'] * self.q['vib']
         self.E['tot'] = self.E['elec'] + self.E['trans'] + self.E['rot'] + \
             self.E['vib']
-        self.H = self.E['tot'] #+ kB * T
+        self.H = self.E['tot'] + kB * T
         self.S['tot'] = self.S['elec'] + self.S['trans'] + self.S['rot'] + \
             self.S['vib']
 

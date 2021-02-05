@@ -64,7 +64,7 @@ class Reaction(object):
                     vacancies[site] += 1
                 else:
                     vacancies[site] = 1
-
+                    
         # If the user supplied "bare" sites, count them too
         for species in self.reactants:
             if species in vacancies:
@@ -188,12 +188,12 @@ class Reaction(object):
         except KeyError:
             print("{} is not a valid scaling parameter name!".format(param))
 
-    def update(self, T=None, Asite=None, L=None, force=False):
-        if not force and not self.is_update_needed(T, Asite, L):
-            return
+    def update(self, T=None, Asite=None, L=None):
+        #if not self.is_update_needed(T, Asite, L):
+        #    return
 
         for species in self.species:
-            species.update(T=T, force=True)
+            species.update(T=T)
 
         self.T = T
         self.Asite = Asite
@@ -205,7 +205,7 @@ class Reaction(object):
         self.dG = self.dH - self.T * self.dS
         if self.ts is not None:
             for species in self.ts:
-                species.update(T=T, force=True)
+                species.update(T=T)
 
             Gts = self.ts.get_G(T)
             Gr = self.reactants.get_G(T)
@@ -499,6 +499,7 @@ class Model(object):
                 else:
                     self.vacspecies[site].append(species)
 
+
     def set_T(self, T):
         self._T = T
         for reaction in self._reactions:
@@ -747,12 +748,12 @@ class Model(object):
         # derivative of rate expressions w.r.t. concentrations and vacancies
         self.drdy = np.zeros((nrxns, self.nvariables), dtype=object)
         self.drdvac = np.zeros((nrxns, len(self.vacancy)), dtype=object)
+        
         for i, rate in enumerate(self.rates):
             for j, symbol in enumerate(self.symbols):
                 self.drdy[i, j] = sym.diff(rate, symbol)
             for j, vac in enumerate(self.vacancy):
                 self.drdvac[i, j] = sym.diff(rate, vac.symbol)
-
         # Sets up and compiles the Fortran differential equation solving module
         self.setup_execs()
 
@@ -773,7 +774,7 @@ class Model(object):
         self.initialized = True
 
     def setup_execs(self):
-        from micki.fortran import f90_template, pyf_template
+        from micki.fortran2 import f90_template, pyf_template
         from numpy import f2py
 
         # y_vec is an array symbol that will represent the species
@@ -876,8 +877,10 @@ class Model(object):
 
         # Write the pertinent data into the temp directory
         with open(os.path.join(dname, pyfname), 'w') as f:
-            f.write(pyf_template.format(modname=modname, neq=self.nvariables,
-                    nrates=len(self.rates), nvac=len(self.vacancy)))
+            f.write(pyf_template.format(modname=modname,
+                                        neq=self.nvariables,
+                    nrates=len(self.rates),
+                                        nvac=len(self.vacancy)))
 
         # Compile the module with f2py
         lapack = "-lmkl_rt"
@@ -913,7 +916,8 @@ class Model(object):
         self.ffinalize = solve_ida.finalize
 
         # Delete the module file. We've already imported it, so it's in memory.
-        os.remove(modname + '.so')
+
+        os.remove(modname + '.cpython-37m-x86_64-linux-gnu.so')
 
     def _out_array_to_dict(self, U, dU, r):
         Ui = {}
