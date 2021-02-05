@@ -426,7 +426,8 @@ class Reaction(object):
 
 
 class Model(object):
-    def __init__(self, T, Asite, z=0, lattice=None, reactor='CSTR', rhocat=1):
+    def __init__(self, T, P, Asite, z=0, lattice=None, reactor='CSTR', rhocat=1,
+                 flowrate_tot=10):
         self.reactions = OrderedDict()
         self._reactions = []
         self._species = []
@@ -439,6 +440,9 @@ class Model(object):
         self.U0 = None
         self.rhocat = rhocat
 
+        self.flowrate_tot = flowrate_tot
+
+        self.P = P # System pressure
         self.T = T  # System temperature
         self.Asite = Asite  # Area of adsorption site
         self._z = z  # Diffusion length
@@ -700,6 +704,12 @@ class Model(object):
         # Array of rate coefficients.
         self.dypdr = np.zeros((self.nvariables, nrxns), dtype=float)
 
+        # Total flowrate
+        total_flowrate = 0
+        for species in self._species:
+            if isinstance(species, _Fluid):
+                total_flowrate += species.symbol
+
         for j, rxn in enumerate(self._reactions):
             rate_for = rxn.get_kfor(self.T, self.Asite, self.z)
             rate_rev = rxn.get_krev(self.T, self.Asite, self.z)
@@ -714,9 +724,16 @@ class Model(object):
             for species in self._species + self.vacancy:
                 rcount = rxn.reactants.species.count(species)
                 pcount = rxn.products.species.count(species)
-                if not isinstance(species, Electron):
-                    rate_for *= species.symbol**rcount
-                    rate_rev *= species.symbol**pcount
+                #if not isinstance(species, Electron):
+                #    rate_for *= species.symbol**rcount
+                #    rate_rev *= species.symbol**pcount
+
+                if isinstance(species, _Fluid):
+                    rate_for *= (species.symbol / total_flowrate * self.P)**rcount
+                    rate_rev *= (species.symbol / total_flowrate * self.P)**pcount
+                elif not isinstance(species, Electron):
+                    rate_for *= species.symbol ** rcount
+                    rate_rev *= species.symbol ** pcount
 
             # Overall reaction rate (flux)
             self.rates[j] = rate_for
@@ -804,7 +821,6 @@ class Model(object):
         # rate expressions
         dypdrcode = []
         drdycode = []
-        ratecode = []
         vaccode = []
         drdvaccode = []
         dvacdycode = []
@@ -843,12 +859,8 @@ class Model(object):
                         fcode = fcode.replace(key, str_trans[key])
                     drdycode.append('   drdy({}, {}) = '.format(i + 1, j + 1) + fcode)
 
-        # See residual above
-        for i, rate in enumerate(self.rates):
-            fcode = sym.fcode(rate, source_format='free')
-            for key in str_list:
-                fcode = fcode.replace(key, str_trans[key])
-            ratecode.append('   rates({}) = '.format(i + 1) + fcode)
+        ratecode = self._get_rate_code(str_list, str_trans)
+        flowratecode = self._get_flowrate_code(str_list, str_trans)
 
         # We insert all of the parameters of this differential equation into
         # the prewritten Fortran template, including the residual, Jacobian,
@@ -862,6 +874,7 @@ class Model(object):
                                       vaccalc='\n'.join(vaccode),
                                       drdvaccalc='\n'.join(drdvaccode),
                                       dvacdycalc='\n'.join(dvacdycode),
+                                      flowratecalc='\n'.join(flowratecode),
                                       )
 
         # Generate a randomly-named temp directory for compiling the module.
@@ -918,6 +931,46 @@ class Model(object):
         # Delete the module file. We've already imported it, so it's in memory.
 
         os.remove(modname + '.cpython-37m-x86_64-linux-gnu.so')
+
+    def _get_rate_code(self, str_list, str_trans):
+        ratecode = []
+        # See residual above
+        for i, rate in enumerate(self.rates):
+            fcode = sym.fcode(rate, source_format='free')
+            for key in str_list:
+                fcode = fcode.replace(key, str_trans[key])
+            ratecode.append('   rates({}) = '.format(i + 1) + fcode)
+        return ratecode
+
+    def _get_flowrate_code(self, str_list, str_trans):
+        # Calculate flowrate of all gas species
+        flowratecode = []
+        flowrate = 0
+        for species in self._species:
+            if isinstance(species, _Fluid):
+                flowrate += species.symbol
+        fcode = sym.fcode(flowrate, source_format='free')
+
+        for key in str_list:
+            fcode = fcode.replace(key, str_trans[key])
+        flowratecode.append(f'   flowrate = {fcode}')
+
+        return flowratecode
+
+    def _get_partial_pressure_code(self, str_list, str_trans):
+        # Calculate flowrate of all gas species
+        flowratecode = []
+        flowrate = 0
+        for species in self._species:
+            if isinstance(species, _Fluid):
+                flowrate += species.symbol
+        fcode = sym.fcode(flowrate, source_format='free')
+
+        for key in str_list:
+            fcode = fcode.replace(key, str_trans[key])
+        flowratecode.append(f'   flowrate = {fcode}')
+
+        return flowratecode
 
     def _out_array_to_dict(self, U, dU, r):
         Ui = {}

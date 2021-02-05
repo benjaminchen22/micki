@@ -12,7 +12,7 @@ f90_template = """module solve_ida
    real*8 :: rates({nrates})
    real*8 :: dypdr({neq}, {nrates})
    integer :: dvacdy({nvac}, {neq})
-
+   
 end module solve_ida
 
 subroutine initialize(neqin, y0in, rtol, atol, ipar, rpar, id_vec)
@@ -31,6 +31,8 @@ subroutine initialize(neqin, y0in, rtol, atol, ipar, rpar, id_vec)
    integer :: i
    integer :: meth, itmeth
    integer :: myid
+    
+   print *, id_vec
 
    dypdr = 0
 {dypdrcalc}
@@ -54,9 +56,9 @@ subroutine initialize(neqin, y0in, rtol, atol, ipar, rpar, id_vec)
       mas(i, i) = id_vec(i)
    enddo
 
-!   ! Calculate yp
+   ! Calculate yp0 (BC: gradient in y at time 0?)
    call fidaresfun(0.d0, y0, yptmp, yp0, ipar, rpar, ier)
-
+   
    ! initialize Sundials
    call fnvinits(2, neq, ier)
    ! allocate memory
@@ -210,6 +212,8 @@ subroutine fidaresfun(tres, yin, ypin, res, ipar, rpar, reserr)
 
    call ratecalc({neq}, y)
 
+   !print *, "ypin is:", ypin
+   !print *, "diff is:", diff
    res = matmul(dypdr, rates) - diff * ypin
    
 end subroutine fidaresfun
@@ -224,7 +228,7 @@ subroutine ratecalc(neqin, yin)
    real*8, intent(in) :: yin(neqin)
    real*8 :: y(neqin)
    real*8 :: vac({nvac})
-
+   real*8 :: flowrate
    integer :: i
 
    y = yin
@@ -238,7 +242,10 @@ subroutine ratecalc(neqin, yin)
          vac(i) = 0.d0
       endif
    enddo
-
+   
+!{flowratecalc}
+!   print *, "Flowrate:", flowrate
+   
    rates = 0
 {ratecalc}
 
