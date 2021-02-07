@@ -688,7 +688,7 @@ class Model(object):
         # Create the final mass matrix of the proper dimensions
         self.M = np.eye(self.nvariables, dtype=int)
         
-        if self.reactor == 'PFR':
+        if self.reactor == 'PFR':# or self.reactor == 'CSTR':
             for i, species in enumerate(self._variable_species):
                 if isinstance(species, Adsorbate):
                     self.M[i, i] = 0
@@ -785,8 +785,10 @@ class Model(object):
 
         # Pass initial values to the fortran module
         atol = np.array([1e-32] * self.nvariables)
-        atol += 1e-16 * algvar
-        self.finitialize(U0, 1e-10, atol, [], [], algvar)
+        atol += 1e-25 * algvar # BC:originally  1e-16
+        rtol = 1e-11 # BC: originally 1e-10
+
+        self.finitialize(U0, rtol, atol, [], [], algvar)
 
         self.initialized = True
 
@@ -860,7 +862,14 @@ class Model(object):
                     drdycode.append('   drdy({}, {}) = '.format(i + 1, j + 1) + fcode)
 
         ratecode = self._get_rate_code(str_list, str_trans)
-        flowratecode = self._get_flowrate_code(str_list, str_trans)
+        #flowratecode = self._get_flowrate_code(str_list, str_trans)
+
+        is_gas = ['   isgas = 0']
+        for idx, species in enumerate(self._variable_species):
+            if isinstance(species, _Fluid):
+                is_gas.append(f'   isgas({idx+1}) = 1')
+            else:
+                is_gas.append(f'   isgas({idx+1}) = 0')
 
         # We insert all of the parameters of this differential equation into
         # the prewritten Fortran template, including the residual, Jacobian,
@@ -874,7 +883,7 @@ class Model(object):
                                       vaccalc='\n'.join(vaccode),
                                       drdvaccalc='\n'.join(drdvaccode),
                                       dvacdycalc='\n'.join(dvacdycode),
-                                      flowratecalc='\n'.join(flowratecode),
+                                      isgas='\n'.join(is_gas),
                                       )
 
         # Generate a randomly-named temp directory for compiling the module.
@@ -892,7 +901,7 @@ class Model(object):
         with open(os.path.join(dname, pyfname), 'w') as f:
             f.write(pyf_template.format(modname=modname,
                                         neq=self.nvariables,
-                    nrates=len(self.rates),
+                                        nrates=len(self.rates),
                                         nvac=len(self.vacancy)))
 
         # Compile the module with f2py
@@ -900,6 +909,9 @@ class Model(object):
         if "MICKI_LAPACK" in os.environ:
             lapack = os.environ["MICKI_LAPACK"]
         os.environ["CFLAGS"] = "-w"
+
+
+
         f2py.compile(program, modulename=modname,
                      extra_args='--quiet '
                                 '--f90flags="-Wno-unused-dummy-argument '
@@ -912,7 +924,6 @@ class Model(object):
                                 '-lsundials_nvecserial ' + lapack + ' ' +
                                 os.path.join(dname, pyfname),
                      source_fn=os.path.join(dname, fname), verbose=0)
-
         # Delete the temporary directory
         shutil.rmtree(dname)
 
@@ -1059,9 +1070,9 @@ class Model(object):
             for k, word in [(kfor, "Forwards"), (krev, "Reverse")]:
                 ratio = k / kmax
                 if (ratio - 1.0) > 1e-6:
-                    warnings.warn(word + " rate constant for {} is too large! "
+                    warnings.warn(word + " rate constant for {} is too large ({})! "
                                   "Value is {} kB T / h (should be <= 1)."
-                                  "".format(reaction, ratio),
+                                  "".format(reaction, k, ratio),
                                   RuntimeWarning, stacklevel=2)
 
     def copy(self, initialize=True):

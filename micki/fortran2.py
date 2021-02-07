@@ -7,6 +7,7 @@ f90_template = """module solve_ida
    integer :: iout(50)
    real*8 :: rout(50)
    real*8 :: y0({neq}), yp0({neq})
+   real*8 :: isgas({neq})
    real*8 :: diff({neq}), mas({neq}, {neq})
    real*8 :: jac({neq}, {neq})
    real*8 :: rates({nrates})
@@ -17,7 +18,7 @@ end module solve_ida
 
 subroutine initialize(neqin, y0in, rtol, atol, ipar, rpar, id_vec)
 
-   use solve_ida, only: neq, iout, rout, y0, yp0, mas, diff, dypdr, dvacdy
+   use solve_ida, only: neq, iout, rout, y0, yp0, mas, diff, dypdr, dvacdy, isgas
 
    implicit none
 
@@ -32,8 +33,6 @@ subroutine initialize(neqin, y0in, rtol, atol, ipar, rpar, id_vec)
    integer :: meth, itmeth
    integer :: myid
     
-   print *, id_vec
-
    dypdr = 0
 {dypdrcalc}
 
@@ -47,6 +46,11 @@ subroutine initialize(neqin, y0in, rtol, atol, ipar, rpar, id_vec)
    yp0 = 0
    yptmp = 0
    diff = id_vec
+{isgas}
+   
+   !print *, "diff is:", diff
+   !print *, "id_vec is:", id_vec
+   ! print *, "isgas is:", isgas
    mas = 0
    t0 = 0
    meth = 2  ! 1 = Adams (nonstiff), 2 = BDF (stiff)
@@ -64,7 +68,7 @@ subroutine initialize(neqin, y0in, rtol, atol, ipar, rpar, id_vec)
    ! allocate memory
    call fidamalloc(t0, y0, yp0, iatol, rtol, atol, iout, rout, ipar, rpar, ier)
    ! set maximum number of steps (default = 500)
-   call fidasetiin('MAX_NSTEPS', 50000, ier)
+   call fidasetiin('MAX_NSTEPS', 500, ier)
    ! set algebraic variables
    call fidasetvin('ID_VEC', id_vec, ier)
    ! set constraints (all yi >= 0.)
@@ -113,12 +117,15 @@ subroutine find_steady_state(neqin, nrates, dt, maxiter, epsilon, t1, u1, du1, r
          tout = tout + dt
       end if
 
+      !print *, "tout", tout
       call fidasolve(tout, t1, u1, du1, itask, ier)
 
       i = i + 1
 
       call fidaresfun(tout, u1, du0, dutmp, ipar, rpar, ier)
-
+      !print *, "dutmp:", dutmp
+      !print *, "du1:", du1
+        
       if (maxval(dutmp**2) < epsilon2) then
          converged = .TRUE.
       end if
@@ -184,7 +191,7 @@ end subroutine finalize
 
 subroutine fidaresfun(tres, yin, ypin, res, ipar, rpar, reserr)
 
-   use solve_ida, only: neq, diff, dypdr, rates
+   use solve_ida, only: neq, diff, dypdr, rates, y0, isgas
 
    implicit none
 
@@ -205,16 +212,26 @@ subroutine fidaresfun(tres, yin, ypin, res, ipar, rpar, reserr)
 
    do i = 1, neq
       if (y(i) < -1d-10)  then
-!         y(i) = 0.d0
+         !y(i) = 0.d0
          reserr = 1
       endif
    enddo
 
    call ratecalc({neq}, y)
 
-   !print *, "ypin is:", ypin
-   !print *, "diff is:", diff
-   res = matmul(dypdr, rates) - diff * ypin
+   !print *, "yin is:", yin
+   !print *, "y0 is:", y0
+   !print *, "rates is:", rates
+   
+   ! res = matmul(dypdr, rates) - diff * ypin
+   
+   ! BC:  
+   ! "matmul(dypdr, rates) + (isgas * (y0 - yin))"  is gradient calculated by our knowledge at current yin
+   ! "diff - ypin" is gradient at current stage of optimization
+   ! Both gradients have to be equal (res=0) for the optimization to be complete
+   
+   res = matmul(dypdr, rates) + (isgas * (y0 - yin)) - diff * ypin
+   ! print *, "res is:", res
    
 end subroutine fidaresfun
 
@@ -243,9 +260,6 @@ subroutine ratecalc(neqin, yin)
       endif
    enddo
    
-!{flowratecalc}
-!   print *, "Flowrate:", flowrate
-   
    rates = 0
 {ratecalc}
 
@@ -273,7 +287,7 @@ python module {modname} ! in
             integer, optional :: neq={neq}
         end module solve_ida
         subroutine initialize(neqin,y0in,rtol,atol,ipar,rpar,id_vec) ! in :{modname}:{modname}.f90
-            use solve_ida, only: neq,iout,rout,y0,yp0,mas,diff,dypdr,dvacdy
+            use solve_ida, only: neq,iout,rout,y0,yp0,mas,diff,dypdr,dvacdy,isgas
             integer, optional,intent(in),check(len(y0in)>=neqin),depend(y0in) :: neqin=len(y0in)
             real*8 dimension(neqin),intent(in) :: y0in
             real*8 intent(in) :: rtol
