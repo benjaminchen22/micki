@@ -319,6 +319,7 @@ class Reaction(object):
             barr *= sym.exp(-self.dG_act / (kB * self.T)) \
                     / self.reactants.get_reference_state()
 #                    * self.ts.get_reference_state() \
+
         if self.method == 'EQUIL':
             self.kfor = _k * self.T * barr / _hplanck * self.scale['kfor']
             if isinstance(self.keq, sym.Basic):
@@ -328,8 +329,10 @@ class Reaction(object):
                 keq = self.keq.subs(subs)
             else:
                 keq = self.keq
-            if keq < 1:
-                self.kfor *= self.keq * self.scale['krev'] / self.scale['kfor']
+
+            # BC: Commented out the below... if not commented out the degree of thermo rate control is wrong
+            #if keq < 1:
+            #    self.kfor *= self.keq * self.scale['krev'] / self.scale['kfor']
         elif self.method == 'DIEQUIL':
             kfor1 = _k * self.T * barr / _hplanck * self.scale['kfor']
             kfor2 = kfor1 * self.keq * self.scale['krev'] / self.scale['kfor']
@@ -1076,7 +1079,7 @@ class Model(object):
                                   RuntimeWarning, stacklevel=2)
 
     def copy(self, initialize=True):
-        newmodel = Model(self.T, self.Asite, self.z, self.lattice, self.rhocat)
+        newmodel = Model(T=self.T, P=self.P, Asite=self.Asite, z=self.z, lattice=self.lattice, rhocat=self.rhocat)
         newmodel.add_reactions(self.reactions)
         newmodel.set_fixed(self.fixed)
         newmodel.set_solvent(self.solvent)
