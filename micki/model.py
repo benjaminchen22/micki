@@ -2,6 +2,7 @@
 
 from __future__ import print_function
 
+import glob
 import os
 import tempfile
 import shutil
@@ -42,7 +43,7 @@ class Reaction(object):
 
         # Determine the number of sites on the LHS and the RHS of the reaction,
         # then add "bare" sites as necessary to balance the site number.
-        vacancies = OrderedDict() 
+        vacancies = OrderedDict()
         self.species = []
         for species in self.reactants:
             if species not in self.species:
@@ -132,7 +133,7 @@ class Reaction(object):
         self.reversible = reversible
 
         # Scaling for sensitivity analysis, defaults to 1 (no scaling)
-        self.scale = OrderedDict() 
+        self.scale = OrderedDict()
         for param in self.scale_params:
             self.scale[param] = 1.0
         self.scale_old = self.scale.copy()
@@ -664,7 +665,7 @@ class Model(object):
         # it is fixed or to a constraint (such as constraining the total
         # number of adsorption sites)
         subs = {}
-        
+
         self.vac_sym = np.zeros(len(self.vacancy), dtype=object)
         # A vacancy will be represented by the total number of sites
         # minus the symbol of each species that occupies one of its sites.
@@ -682,7 +683,7 @@ class Model(object):
 
         # Create the final mass matrix of the proper dimensions
         self.M = np.eye(self.nvariables, dtype=int)
-        
+
         if self.reactor == 'PFR':
             for i, species in enumerate(self._variable_species):
                 if isinstance(species, Adsorbate):
@@ -794,7 +795,7 @@ class Model(object):
         for i, vac in enumerate(self.vacancy):
             str_trans[sym.fcode(vac.symbol, source_format='free')] = \
                     sym.fcode(vac_vec[i + 1], source_format='free')
-        
+
         str_list = [key for key in str_trans]
         str_list.sort(key=len, reverse=True)
 
@@ -821,7 +822,7 @@ class Model(object):
                     for key in str_list:
                         fcode = fcode.replace(key, str_trans[key])
                     drdvaccode.append('   drdvac({}, {}) = '.format(i + 1, j + 1) + fcode)
-        
+
         for i, row in enumerate(self.dvacdy):
             for j, elem in enumerate(row):
                 if elem != 0:
@@ -866,7 +867,9 @@ class Model(object):
         # Generate a randomly-named temp directory for compiling the module.
         # We will name the actual module file after the directory.
         dname = tempfile.mkdtemp()
+        print(dname)
         modname = os.path.split(dname)[1]
+        print(modname)
         fname = modname + '.f90'
         pyfname = modname + '.pyf'
 
@@ -887,7 +890,7 @@ class Model(object):
         f2py.compile(program, modulename=modname,
                      extra_args='--quiet '
                                 '--f90flags="-Wno-unused-dummy-argument '
-                                '-Wno-unused-variable -Wno-unused-func -w" ' 
+                                '-Wno-unused-variable -Wno-unused-func -w" '
                                 '-lsundials_fida '
                                 '-lsundials_fnvecserial '
                                 '-lsundials_ida '
@@ -901,6 +904,7 @@ class Model(object):
         shutil.rmtree(dname)
 
         # Import the module on-the-fly with __import__. This is kind of a hack.
+        print(modname)
         solve_ida = __import__(modname)
         self._solve_ida = solve_ida
 
@@ -913,7 +917,8 @@ class Model(object):
         self.ffinalize = solve_ida.finalize
 
         # Delete the module file. We've already imported it, so it's in memory.
-        os.remove(modname + '.so')
+        modulefile = glob.glob(f'{modname}*.so')[0]
+        os.remove(modulefile)
 
     def _out_array_to_dict(self, U, dU, r):
         Ui = {}
