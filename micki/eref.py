@@ -44,6 +44,8 @@ class EnergyReference(dict):
 
         size = len(elements)
         if len(energies) < size:
+            print(energies)
+            print(size)
             raise ValueError("System is underdetermined!")
         elif len(energies) > size:
             raise ValueError("System is overdetermined!")

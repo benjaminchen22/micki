@@ -189,12 +189,12 @@ class Reaction(object):
         except KeyError:
             print("{} is not a valid scaling parameter name!".format(param))
 
-    def update(self, T=None, Asite=None, L=None, force=False):
-        if not force and not self.is_update_needed(T, Asite, L):
-            return
+    def update(self, T=None, Asite=None, L=None):
+        #if not self.is_update_needed(T, Asite, L):
+        #    return
 
         for species in self.species:
-            species.update(T=T, force=True)
+            species.update(T=T)
 
         self.T = T
         self.Asite = Asite
@@ -206,7 +206,7 @@ class Reaction(object):
         self.dG = self.dH - self.T * self.dS
         if self.ts is not None:
             for species in self.ts:
-                species.update(T=T, force=True)
+                species.update(T=T)
 
             Gts = self.ts.get_G(T)
             Gr = self.reactants.get_G(T)
@@ -427,7 +427,8 @@ class Reaction(object):
 
 
 class Model(object):
-    def __init__(self, T, Asite, z=0, lattice=None, reactor='CSTR', rhocat=1):
+    def __init__(self, T, P, Asite, z=0, lattice=None, reactor='CSTR', rhocat=1,
+                 flowrate_tot=10):
         self.reactions = OrderedDict()
         self._reactions = []
         self._species = []
@@ -440,6 +441,9 @@ class Model(object):
         self.U0 = None
         self.rhocat = rhocat
 
+        self.flowrate_tot = flowrate_tot
+
+        self.P = P # System pressure
         self.T = T  # System temperature
         self.Asite = Asite  # Area of adsorption site
         self._z = z  # Diffusion length
@@ -499,6 +503,7 @@ class Model(object):
                     self.vacspecies[site] = [species]
                 else:
                     self.vacspecies[site].append(species)
+
 
     def set_T(self, T):
         self._T = T
@@ -683,7 +688,6 @@ class Model(object):
 
         # Create the final mass matrix of the proper dimensions
         self.M = np.eye(self.nvariables, dtype=int)
-
         if self.reactor == 'PFR':
             for i, species in enumerate(self._variable_species):
                 if isinstance(species, Adsorbate):
@@ -700,6 +704,12 @@ class Model(object):
         # Array of rate coefficients.
         self.dypdr = np.zeros((self.nvariables, nrxns), dtype=float)
 
+        # Total flowrate
+        total_flowrate = 0
+        for species in self._species:
+            if isinstance(species, _Fluid):
+                total_flowrate += species.symbol
+
         for j, rxn in enumerate(self._reactions):
             rate_for = rxn.get_kfor(self.T, self.Asite, self.z)
             rate_rev = rxn.get_krev(self.T, self.Asite, self.z)
@@ -714,9 +724,16 @@ class Model(object):
             for species in self._species + self.vacancy:
                 rcount = rxn.reactants.species.count(species)
                 pcount = rxn.products.species.count(species)
-                if not isinstance(species, Electron):
-                    rate_for *= species.symbol**rcount
-                    rate_rev *= species.symbol**pcount
+                #if not isinstance(species, Electron):
+                #    rate_for *= species.symbol**rcount
+                #    rate_rev *= species.symbol**pcount
+
+                if isinstance(species, _Fluid):
+                    rate_for *= (species.symbol / total_flowrate * self.P)**rcount
+                    rate_rev *= (species.symbol / total_flowrate * self.P)**pcount
+                elif not isinstance(species, Electron):
+                    rate_for *= species.symbol ** rcount
+                    rate_rev *= species.symbol ** pcount
 
             # Overall reaction rate (flux)
             self.rates[j] = rate_for
@@ -748,12 +765,12 @@ class Model(object):
         # derivative of rate expressions w.r.t. concentrations and vacancies
         self.drdy = np.zeros((nrxns, self.nvariables), dtype=object)
         self.drdvac = np.zeros((nrxns, len(self.vacancy)), dtype=object)
+
         for i, rate in enumerate(self.rates):
             for j, symbol in enumerate(self.symbols):
                 self.drdy[i, j] = sym.diff(rate, symbol)
             for j, vac in enumerate(self.vacancy):
                 self.drdvac[i, j] = sym.diff(rate, vac.symbol)
-
         # Sets up and compiles the Fortran differential equation solving module
         self.setup_execs()
 
@@ -768,13 +785,15 @@ class Model(object):
 
         # Pass initial values to the fortran module
         atol = np.array([1e-32] * self.nvariables)
-        atol += 1e-16 * algvar
-        self.finitialize(U0, 1e-10, atol, [], [], algvar)
+        atol += 1e-25 * algvar # BC:originally  1e-16
+        rtol = 1e-11 # BC: originally 1e-10
+
+        self.finitialize(U0, rtol, atol, [], [], algvar)
 
         self.initialized = True
 
     def setup_execs(self):
-        from micki.fortran import f90_template, pyf_template
+        from micki.fortran2 import f90_template, pyf_template
         from numpy import f2py
 
         # y_vec is an array symbol that will represent the species
@@ -804,7 +823,6 @@ class Model(object):
         # rate expressions
         dypdrcode = []
         drdycode = []
-        ratecode = []
         vaccode = []
         drdvaccode = []
         dvacdycode = []
@@ -843,12 +861,15 @@ class Model(object):
                         fcode = fcode.replace(key, str_trans[key])
                     drdycode.append('   drdy({}, {}) = '.format(i + 1, j + 1) + fcode)
 
-        # See residual above
-        for i, rate in enumerate(self.rates):
-            fcode = sym.fcode(rate, source_format='free')
-            for key in str_list:
-                fcode = fcode.replace(key, str_trans[key])
-            ratecode.append('   rates({}) = '.format(i + 1) + fcode)
+        ratecode = self._get_rate_code(str_list, str_trans)
+        #flowratecode = self._get_flowrate_code(str_list, str_trans)
+
+        is_gas = ['   isgas = 0']
+        for idx, species in enumerate(self._variable_species):
+            if isinstance(species, _Fluid):
+                is_gas.append(f'   isgas({idx+1}) = 1')
+            else:
+                is_gas.append(f'   isgas({idx+1}) = 0')
 
         # We insert all of the parameters of this differential equation into
         # the prewritten Fortran template, including the residual, Jacobian,
@@ -862,6 +883,7 @@ class Model(object):
                                       vaccalc='\n'.join(vaccode),
                                       drdvaccalc='\n'.join(drdvaccode),
                                       dvacdycalc='\n'.join(dvacdycode),
+                                      isgas='\n'.join(is_gas),
                                       )
 
         # Generate a randomly-named temp directory for compiling the module.
@@ -879,14 +901,19 @@ class Model(object):
 
         # Write the pertinent data into the temp directory
         with open(os.path.join(dname, pyfname), 'w') as f:
-            f.write(pyf_template.format(modname=modname, neq=self.nvariables,
-                    nrates=len(self.rates), nvac=len(self.vacancy)))
+            f.write(pyf_template.format(modname=modname,
+                                        neq=self.nvariables,
+                                        nrates=len(self.rates),
+                                        nvac=len(self.vacancy)))
 
         # Compile the module with f2py
         lapack = "-lmkl_rt"
         if "MICKI_LAPACK" in os.environ:
             lapack = os.environ["MICKI_LAPACK"]
         os.environ["CFLAGS"] = "-w"
+
+
+
         f2py.compile(program, modulename=modname,
                      extra_args='--quiet '
                                 '--f90flags="-Wno-unused-dummy-argument '
@@ -899,7 +926,6 @@ class Model(object):
                                 '-lsundials_nvecserial ' + lapack + ' ' +
                                 os.path.join(dname, pyfname),
                      source_fn=os.path.join(dname, fname), verbose=0)
-
         # Delete the temporary directory
         shutil.rmtree(dname)
 
@@ -919,6 +945,47 @@ class Model(object):
         # Delete the module file. We've already imported it, so it's in memory.
         modulefile = glob.glob(f'{modname}*.so')[0]
         os.remove(modulefile)
+
+    def _get_rate_code(self, str_list, str_trans):
+        ratecode = []
+        # See residual above
+        for i, rate in enumerate(self.rates):
+            fcode = sym.fcode(rate, source_format='free')
+            for key in str_list:
+                fcode = fcode.replace(key, str_trans[key])
+            ratecode.append('   rates({}) = '.format(i + 1) + fcode)
+        return ratecode
+
+    def _get_flowrate_code(self, str_list, str_trans):
+        # Calculate flowrate of all gas species
+        flowratecode = []
+        flowrate = 0
+        for species in self._species:
+            if isinstance(species, _Fluid):
+                flowrate += species.symbol
+        fcode = sym.fcode(flowrate, source_format='free')
+
+        for key in str_list:
+            fcode = fcode.replace(key, str_trans[key])
+        flowratecode.append(f'   flowrate = {fcode}')
+
+        return flowratecode
+
+    def _get_partial_pressure_code(self, str_list, str_trans):
+        # Calculate flowrate of all gas species
+        flowratecode = []
+        flowrate = 0
+        for species in self._species:
+            if isinstance(species, _Fluid):
+                flowrate += species.symbol
+        fcode = sym.fcode(flowrate, source_format='free')
+
+        for key in str_list:
+            fcode = fcode.replace(key, str_trans[key])
+        flowratecode.append(f'   flowrate = {fcode}')
+
+        return flowratecode
+>>>>>>> 530f90d45d4f9e419b5f3a06a5a96fb1e155f990
 
     def _out_array_to_dict(self, U, dU, r):
         Ui = {}
@@ -1007,9 +1074,9 @@ class Model(object):
             for k, word in [(kfor, "Forwards"), (krev, "Reverse")]:
                 ratio = k / kmax
                 if (ratio - 1.0) > 1e-6:
-                    warnings.warn(word + " rate constant for {} is too large! "
+                    warnings.warn(word + " rate constant for {} is too large ({})! "
                                   "Value is {} kB T / h (should be <= 1)."
-                                  "".format(reaction, ratio),
+                                  "".format(reaction, k, ratio),
                                   RuntimeWarning, stacklevel=2)
 
     def copy(self, initialize=True):

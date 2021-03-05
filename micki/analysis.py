@@ -55,9 +55,8 @@ class ModelAnalysis(object):
         reaction.set_scale('krev', 1.0 - scale)
         reaction.update(self.model.T,
                         self.model.Asite,
-                        self.model.z,
-                        force=True)
-        klow = reaction.get_kfor()
+                        self.model.z)
+        klow = reaction.get_kfor(self.model.T, self.model.Asite, self.model.z)
         model = self.model.copy()
 
         try:
@@ -80,9 +79,8 @@ class ModelAnalysis(object):
         reaction.set_scale('krev', 1.0 + scale)
         reaction.update(self.model.T,
                         self.model.Asite,
-                        self.model.z,
-                        force=True)
-        khigh = reaction.get_kfor()
+                        self.model.z)
+        khigh = reaction.get_kfor(self.model.T, self.model.Asite, self.model.z)
         model = self.model.copy()
 
         try:
