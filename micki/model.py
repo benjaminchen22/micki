@@ -985,7 +985,6 @@ class Model(object):
         flowratecode.append(f'   flowrate = {fcode}')
 
         return flowratecode
->>>>>>> 530f90d45d4f9e419b5f3a06a5a96fb1e155f990
 
     def _out_array_to_dict(self, U, dU, r):
         Ui = {}
