@@ -20,9 +20,9 @@ from micki.reactants import _Thermo, _Fluid, _Reactants, Gas, Liquid, Adsorbate
 from micki.reactants import Electron
 
 from micki.lattice import Lattice
+from abc import ABC
 
-
-class Reaction(object):
+class Reaction(ABC):
     def __init__(self, reactants, products, ts=None, method=None, S0=1.,
                  dG_act=None, dground=False, reversible=True):
 
@@ -219,9 +219,9 @@ class Reaction(object):
             dGr = Gts - Gp + dEp
 
             if dGf < 0:
-                raise RuntimeError('Reaction {} has negative forwards activation barrier!'.format(self))
+                raise RuntimeError(f'Reaction {self} has negative forwards activation barrier ({dGf})!')
             if dGr < 0:
-                raise RuntimeError('Reaction {} has negative reverse activation barrier!'.format(self))
+                raise RuntimeError(f'Reaction {self} has negative reverse activation barrier ({dGr})!')
 
             all_symbols = set()
             all_symbols.update(sym.sympify(dEr).atoms(sym.Symbol))
@@ -791,6 +791,8 @@ class Model(object):
         atol += 1e-25 * algvar # BC:originally  1e-16
         rtol = 1e-11 # BC: originally 1e-10
 
+        atol += 1e-14
+        rtol = 1e-8
         self.finitialize(U0, rtol, atol, [], [], algvar)
 
         self.initialized = True

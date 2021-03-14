@@ -17,9 +17,9 @@ from ase.units import J, mol, _hplanck, m, kg, _k, kB, _c, Pascal, _Nav
 from micki.masses import masses
 from micki.io import parse_vasp_out
 from micki.utils import calculate_avg_vdw_radius
+from abc import ABC
 
-
-class _Thermo(object):
+class _Thermo(ABC):
     """Generic thermodynamics object
 
     This is the base object that all reactant objects inherit from.
@@ -428,7 +428,7 @@ class Adsorbate(_Thermo):
     def __init__(self, atoms, label, freqs=None, ts=None,
                  spin=0., sites=[], lattice=None, eref=None, dE=0.,
                  symm=1):
-        _Thermo.__init__(self)
+        super().__init__()
         self.atoms = atoms
         self.freqs = freqs
         self.label = label
