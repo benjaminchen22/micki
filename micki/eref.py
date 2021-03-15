@@ -27,7 +27,7 @@ class EnergyReference(dict):
         energies = []
         elements = set()
 
-        self.initialized = False
+        #self.initialized = False
 
         for sp in species:
             if isinstance(sp, Atoms):
@@ -60,14 +60,6 @@ class EnergyReference(dict):
         for i, symbol in enumerate(elements):
             self[symbol] = eref[i]
 
-        self.initialized = True
-
-    def __setitem__(self, key, value):
-        if self.initialized:
-            raise NotImplementedError
-        else:
-            super(EnergyReference, self).__setitem__(key, value)
-
     def __delitem__(self, key):
         raise NotImplementedError
 
@@ -76,12 +68,10 @@ class EnergyReference(dict):
             key = key.capitalize()
         elif isinstance(key, int):
             key = chemical_symbols[key]
-        return super(EnergyReference, self).__getitem__(key)
+        return super().__getitem__(key)
 
     def copy(self):
-        new = EnergyReference.__new__(EnergyReference)
-        new.initialized = False
+        new = self.__class__.__new__()
         for key in self:
             new[key] = self[key]
-        new.initialized = True
         return new

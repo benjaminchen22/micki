@@ -218,10 +218,10 @@ class Reaction(ABC):
             dGf = Gts - Gr + dEr
             dGr = Gts - Gp + dEp
 
-            if dGf < 0:
-                raise RuntimeError(f'Reaction {self} has negative forwards activation barrier ({dGf})!')
-            if dGr < 0:
-                raise RuntimeError(f'Reaction {self} has negative reverse activation barrier ({dGr})!')
+            #if dGf < 0:
+            #    raise RuntimeError(f'Reaction {self} has negative forwards activation barrier ({dGf})!')
+            #if dGr < 0:
+            #    raise RuntimeError(f'Reaction {self} has negative reverse activation barrier ({dGr})!')
 
             all_symbols = set()
             all_symbols.update(sym.sympify(dEr).atoms(sym.Symbol))
@@ -788,11 +788,11 @@ class Model(object):
 
         # Pass initial values to the fortran module
         atol = np.array([1e-32] * self.nvariables)
-        atol += 1e-25 * algvar # BC:originally  1e-16
-        rtol = 1e-11 # BC: originally 1e-10
+        atol += 1e-20 * algvar # BC:originally  1e-16
+        rtol = 1e-10 # BC: originally 1e-10
 
-        atol += 1e-14
-        rtol = 1e-8
+        #atol += 1e-14
+        #rtol = 1e-8
         self.finitialize(U0, rtol, atol, [], [], algvar)
 
         self.initialized = True
@@ -894,9 +894,7 @@ class Model(object):
         # Generate a randomly-named temp directory for compiling the module.
         # We will name the actual module file after the directory.
         dname = tempfile.mkdtemp()
-        print(dname)
         modname = os.path.split(dname)[1]
-        print(modname)
         fname = modname + '.f90'
         pyfname = modname + '.pyf'
 
@@ -935,7 +933,6 @@ class Model(object):
         shutil.rmtree(dname)
 
         # Import the module on-the-fly with __import__. This is kind of a hack.
-        print(modname)
         solve_ida = __import__(modname)
         self._solve_ida = solve_ida
 

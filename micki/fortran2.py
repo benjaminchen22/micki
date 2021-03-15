@@ -117,14 +117,14 @@ subroutine find_steady_state(neqin, nrates, dt, maxiter, epsilon, t1, u1, du1, r
          tout = tout + dt
       end if
 
-      print *, "tout", tout
+      ! print *, "tout", tout
       call fidasolve(tout, t1, u1, du1, itask, ier)
 
       i = i + 1
 
       call fidaresfun(tout, u1, du0, dutmp, ipar, rpar, ier)
-      !print *, "dutmp:", dutmp
-      print *, "du1:", du1
+      ! print *, "dutmp:", dutmp
+      ! print *, "du1:", du1
         
       if (maxval(dutmp**2) < epsilon2) then
          converged = .TRUE.
